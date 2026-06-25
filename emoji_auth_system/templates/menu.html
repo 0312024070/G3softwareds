@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="menu-card">
+  <h1>ログイン完了</h1>
+  <p>{{ session.get('name') }} さん、認証に成功しました。</p>
+
+  <div class="menu-actions">
+    {% if session.get('role_name') == 'admin' %}
+      <a class="primary-link" href="{{ url_for('admin.users') }}">管理コンソールを開く</a>
+      <a class="secondary-link" href="{{ url_for('admin.logs') }}">認証ログを見る</a>
+    {% else %}
+      <p>社内システムメニューへ進めます。</p>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}
