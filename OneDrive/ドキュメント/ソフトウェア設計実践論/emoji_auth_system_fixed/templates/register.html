@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="login-layout">
+  <div class="login-left">
+    <h1>アカウント<br>新規登録</h1>
+    <p>利用者情報を入力して、新しいログインアカウントを作成します。</p>
+  </div>
+
+  <div class="login-card">
+    <h2>新規登録</h2>
+    <p class="sub-text">ユーザー情報を入力してください。</p>
+
+    <form method="post" action="{{ url_for('auth.register') }}">
+      <label for="user_id">ユーザーID</label>
+      <input id="user_id" name="user_id" type="text" placeholder="例: sato_sho" value="{{ form.user_id if form else '' }}" required>
+
+      <label for="name">氏名</label>
+      <input id="name" name="name" type="text" placeholder="例: 佐藤 翔" value="{{ form.name if form else '' }}" required>
+
+      <label for="mail_address">メールアドレス</label>
+      <input id="mail_address" name="mail_address" type="email" placeholder="例: sato@example.com" value="{{ form.mail_address if form else '' }}" required>
+
+      <label for="phone_number">電話番号</label>
+      <input id="phone_number" name="phone_number" type="text" placeholder="例: 090-0000-0000" value="{{ form.phone_number if form else '' }}">
+
+      <label for="password">パスワード</label>
+      <input id="password" name="password" type="password" placeholder="8文字以上" required>
+
+      <label for="password_confirm">パスワード確認</label>
+      <input id="password_confirm" name="password_confirm" type="password" placeholder="もう一度入力" required>
+
+      <button class="primary-button" type="submit">登録する</button>
+    </form>
+
+    <p class="sub-text account-guide">
+      <a class="text-link" href="{{ url_for('auth.login') }}">ログイン画面に戻る</a>
+    </p>
+  </div>
+</section>
+{% endblock %}

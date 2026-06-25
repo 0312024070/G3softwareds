@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="admin-card">
+  <h1>認証ログ履歴</h1>
+  <table>
+    <thead>
+      <tr>
+        <th>ログID</th>
+        <th>ユーザーID</th>
+        <th>認証日時</th>
+        <th>認証結果</th>
+        <th>アクセス元IP</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for log in logs %}
+        <tr>
+          <td>{{ log.log_id }}</td>
+          <td>{{ log.user_id }}</td>
+          <td>{{ log.login_time }}</td>
+          <td>{{ log.result }}</td>
+          <td>{{ log.access_ip }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}
