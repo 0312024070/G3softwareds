@@ -1,5 +1,7 @@
 """Routes for login and emoji authentication."""
 
+from datetime import datetime
+
 from flask import (
     Blueprint,
     flash,
@@ -10,7 +12,10 @@ from flask import (
     url_for,
 )
 
+from werkzeug.security import generate_password_hash
+
 from config import CODE_EXPIRATION_MINUTES
+from database import execute_query, fetch_one
 from services.auth_service import AuthService
 from services.emoji_service import EmojiService
 from services.log_service import LogService
@@ -51,6 +56,126 @@ def login() -> str:
     session["pending_code_id"] = code["code_id"]
 
     return redirect(url_for("auth.emoji_auth"))
+
+
+def get_user_role_id(role_name: str) -> int | None:
+    """Return a role ID by role name."""
+    role = fetch_one(
+        "SELECT role_id FROM roles WHERE role_name = ?",
+        (role_name,),
+    )
+    if role is None:
+        return None
+    return int(role["role_id"])
+
+
+@auth_bp.route("/register", methods=["GET", "POST"])
+def register() -> str:
+    """Show user registration form and create a new account."""
+    if request.method == "GET":
+        return render_template("register.html", form={})
+
+    form = {
+        "user_id": request.form.get("user_id", "").strip(),
+        "name": request.form.get("name", "").strip(),
+        "mail_address": request.form.get("mail_address", "").strip(),
+        "phone_number": request.form.get("phone_number", "").strip(),
+    }
+    password = request.form.get("password", "")
+    password_confirm = request.form.get("password_confirm", "")
+
+    if not form["user_id"] or not form["name"] or not form["mail_address"] or not password:
+        flash("必須項目を入力してください。", "error")
+        return render_template("register.html", form=form)
+
+    if password != password_confirm:
+        flash("パスワードが一致しません。", "error")
+        return render_template("register.html", form=form)
+
+    if len(password) < 8:
+        flash("パスワードは8文字以上で入力してください。", "error")
+        return render_template("register.html", form=form)
+
+    existing_user = fetch_one(
+        "SELECT user_id FROM users WHERE user_id = ?",
+        (form["user_id"],),
+    )
+    if existing_user is not None:
+        flash("このユーザーIDはすでに使用されています。", "error")
+        return render_template("register.html", form=form)
+
+    role_id = get_user_role_id("user")
+    if role_id is None:
+        flash("権限情報が見つかりません。python init_db.py を実行してください。", "error")
+        return render_template("register.html", form=form)
+
+    execute_query(
+        """
+        INSERT INTO users
+            (user_id, name, password_hash, role_id, mail_address,
+             phone_number, is_active, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            form["user_id"],
+            form["name"],
+            generate_password_hash(password),
+            role_id,
+            form["mail_address"],
+            form["phone_number"],
+            1,
+            datetime.now().isoformat(timespec="seconds"),
+        ),
+    )
+
+    flash("アカウントを登録しました。ログインしてください。", "success")
+    return redirect(url_for("auth.login"))
+
+
+@auth_bp.route("/forgot-password", methods=["GET", "POST"])
+def forgot_password() -> str:
+    """Show password reset form and update the password."""
+    if request.method == "GET":
+        return render_template("forgot_password.html", form={})
+
+    form = {
+        "user_id": request.form.get("user_id", "").strip(),
+        "mail_address": request.form.get("mail_address", "").strip(),
+    }
+    new_password = request.form.get("new_password", "")
+    password_confirm = request.form.get("password_confirm", "")
+
+    if not form["user_id"] or not form["mail_address"] or not new_password:
+        flash("必須項目を入力してください。", "error")
+        return render_template("forgot_password.html", form=form)
+
+    if new_password != password_confirm:
+        flash("パスワードが一致しません。", "error")
+        return render_template("forgot_password.html", form=form)
+
+    if len(new_password) < 8:
+        flash("パスワードは8文字以上で入力してください。", "error")
+        return render_template("forgot_password.html", form=form)
+
+    user = fetch_one(
+        """
+        SELECT user_id
+        FROM users
+        WHERE user_id = ? AND mail_address = ? AND is_active = 1
+        """,
+        (form["user_id"], form["mail_address"]),
+    )
+    if user is None:
+        flash("ユーザーIDまたはメールアドレスが正しくありません。", "error")
+        return render_template("forgot_password.html", form=form)
+
+    execute_query(
+        "UPDATE users SET password_hash = ? WHERE user_id = ?",
+        (generate_password_hash(new_password), form["user_id"]),
+    )
+
+    flash("パスワードを再設定しました。新しいパスワードでログインしてください。", "success")
+    return redirect(url_for("auth.login"))
 
 
 @auth_bp.route("/emoji-auth", methods=["GET", "POST"])

@@ -1,8 +1,26 @@
-# ソースコード内容
+# ソースコード内容（修正版）
+このファイルは、VS Codeで開くプロジェクト内の主要ソースコードを一覧化したものです。
+今回の修正版では、ログイン画面に「新規登録」と「パスワードを忘れた場合」の画面遷移と処理を追加しています。
+
+## .editorconfig
+
+```
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+indent_style = space
+indent_size = 4
+
+[*.{html,css,js}]
+indent_size = 2
+```
 
 ## .vscode/launch.json
 
-```
+```json
 {
   "version": "0.2.0",
   "configurations": [
@@ -16,12 +34,11 @@
     }
   ]
 }
-
 ```
 
 ## .vscode/settings.json
 
-```
+```json
 {
   "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
   "python.analysis.typeCheckingMode": "basic",
@@ -29,12 +46,11 @@
   "editor.tabSize": 4,
   "files.encoding": "utf8"
 }
-
 ```
 
 ## CODING_RULES.md
 
-```
+```markdown
 # プログラミング規約
 
 ## 1. 命名規則
@@ -70,12 +86,11 @@
 - 重要な関数にはdocstringを書く。
 - 例外発生時は利用者向けメッセージを表示する。
 - コメントは「なぜそうするか」が分かる内容にする。
-
 ```
 
 ## README.md
 
-```
+```markdown
 # 絵文字シャッフル認証システム
 
 株式会社村田サービス向けの「ID・パスワード認証 + 絵文字シャッフル認証」による二要素認証システムのサンプル実装です。  
@@ -201,11 +216,38 @@ emoji_auth_system/
 
 このソースコードは授業課題・プロトタイプ用です。実運用する場合は、HTTPS、メール送信設定、CSRF対策、試行回数制限、監査ログ強化などを追加してください。
 
+
+## 追加修正版の内容
+
+この修正版では、ログイン画面に以下の機能を追加しています。
+
+- 「新規登録」リンク
+- 「パスワードを忘れた場合」リンク
+- 新規登録画面 `/register`
+- パスワード再設定画面 `/forgot-password`
+
+### 起動方法
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+python init_db.py
+python app.py
+```
+
+ブラウザで以下を開きます。
+
+```text
+http://127.0.0.1:5000
+```
+
+※ `requirements.txt` が見つからない場合は、`app.py` と `requirements.txt` が直接見えるフォルダを VS Code で開いてください。
 ```
 
 ## app.py
 
-```
+```python
 """Application entry point for the emoji shuffle authentication system."""
 
 from flask import Flask
@@ -230,12 +272,11 @@ def create_app() -> Flask:
 
 if __name__ == "__main__":
     create_app().run(debug=True)
-
 ```
 
 ## config.py
 
-```
+```python
 """Application configuration."""
 
 from pathlib import Path
@@ -261,12 +302,11 @@ EMOJI_SYMBOLS = [
     "🎯",
     "🔥",
 ]
-
 ```
 
 ## database.py
 
-```
+```python
 """SQLite database helper functions."""
 
 import sqlite3
@@ -314,12 +354,11 @@ def fetch_all(query: str, params: tuple[Any, ...] = ()) -> list[sqlite3.Row]:
 def database_exists() -> bool:
     """Return True when the SQLite database file exists."""
     return Path(DATABASE_PATH).exists()
-
 ```
 
 ## init_db.py
 
-```
+```python
 """Initialize the SQLite database for the authentication system."""
 
 import sqlite3
@@ -449,12 +488,11 @@ def initialize_database() -> None:
 
 if __name__ == "__main__":
     initialize_database()
-
 ```
 
 ## models.py
 
-```
+```python
 """Data models used by the authentication system."""
 
 from dataclasses import dataclass
@@ -495,30 +533,35 @@ class LoginLog:
     login_time: datetime
     result: str
     access_ip: str
-
 ```
 
 ## pyproject.toml
 
-```
+```toml
 [tool.black]
 line-length = 88
 
 [tool.ruff]
 line-length = 88
 select = ["E", "F", "W", "I"]
+```
 
+## requirements.txt
+
+```text
+Flask==3.0.3
+Werkzeug==3.0.3
 ```
 
 ## routes/__init__.py
 
-```
+```python
 
 ```
 
 ## routes/admin_routes.py
 
-```
+```python
 """Routes for the administrator console."""
 
 from functools import wraps
@@ -561,13 +604,14 @@ def logs() -> str:
     """Show authentication logs."""
     login_logs = LogService.get_recent_logs()
     return render_template("admin_logs.html", logs=login_logs)
-
 ```
 
 ## routes/auth_routes.py
 
-```
+```python
 """Routes for login and emoji authentication."""
+
+from datetime import datetime
 
 from flask import (
     Blueprint,
@@ -579,7 +623,10 @@ from flask import (
     url_for,
 )
 
+from werkzeug.security import generate_password_hash
+
 from config import CODE_EXPIRATION_MINUTES
+from database import execute_query, fetch_one
 from services.auth_service import AuthService
 from services.emoji_service import EmojiService
 from services.log_service import LogService
@@ -620,6 +667,126 @@ def login() -> str:
     session["pending_code_id"] = code["code_id"]
 
     return redirect(url_for("auth.emoji_auth"))
+
+
+def get_user_role_id(role_name: str) -> int | None:
+    """Return a role ID by role name."""
+    role = fetch_one(
+        "SELECT role_id FROM roles WHERE role_name = ?",
+        (role_name,),
+    )
+    if role is None:
+        return None
+    return int(role["role_id"])
+
+
+@auth_bp.route("/register", methods=["GET", "POST"])
+def register() -> str:
+    """Show user registration form and create a new account."""
+    if request.method == "GET":
+        return render_template("register.html", form={})
+
+    form = {
+        "user_id": request.form.get("user_id", "").strip(),
+        "name": request.form.get("name", "").strip(),
+        "mail_address": request.form.get("mail_address", "").strip(),
+        "phone_number": request.form.get("phone_number", "").strip(),
+    }
+    password = request.form.get("password", "")
+    password_confirm = request.form.get("password_confirm", "")
+
+    if not form["user_id"] or not form["name"] or not form["mail_address"] or not password:
+        flash("必須項目を入力してください。", "error")
+        return render_template("register.html", form=form)
+
+    if password != password_confirm:
+        flash("パスワードが一致しません。", "error")
+        return render_template("register.html", form=form)
+
+    if len(password) < 8:
+        flash("パスワードは8文字以上で入力してください。", "error")
+        return render_template("register.html", form=form)
+
+    existing_user = fetch_one(
+        "SELECT user_id FROM users WHERE user_id = ?",
+        (form["user_id"],),
+    )
+    if existing_user is not None:
+        flash("このユーザーIDはすでに使用されています。", "error")
+        return render_template("register.html", form=form)
+
+    role_id = get_user_role_id("user")
+    if role_id is None:
+        flash("権限情報が見つかりません。python init_db.py を実行してください。", "error")
+        return render_template("register.html", form=form)
+
+    execute_query(
+        """
+        INSERT INTO users
+            (user_id, name, password_hash, role_id, mail_address,
+             phone_number, is_active, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            form["user_id"],
+            form["name"],
+            generate_password_hash(password),
+            role_id,
+            form["mail_address"],
+            form["phone_number"],
+            1,
+            datetime.now().isoformat(timespec="seconds"),
+        ),
+    )
+
+    flash("アカウントを登録しました。ログインしてください。", "success")
+    return redirect(url_for("auth.login"))
+
+
+@auth_bp.route("/forgot-password", methods=["GET", "POST"])
+def forgot_password() -> str:
+    """Show password reset form and update the password."""
+    if request.method == "GET":
+        return render_template("forgot_password.html", form={})
+
+    form = {
+        "user_id": request.form.get("user_id", "").strip(),
+        "mail_address": request.form.get("mail_address", "").strip(),
+    }
+    new_password = request.form.get("new_password", "")
+    password_confirm = request.form.get("password_confirm", "")
+
+    if not form["user_id"] or not form["mail_address"] or not new_password:
+        flash("必須項目を入力してください。", "error")
+        return render_template("forgot_password.html", form=form)
+
+    if new_password != password_confirm:
+        flash("パスワードが一致しません。", "error")
+        return render_template("forgot_password.html", form=form)
+
+    if len(new_password) < 8:
+        flash("パスワードは8文字以上で入力してください。", "error")
+        return render_template("forgot_password.html", form=form)
+
+    user = fetch_one(
+        """
+        SELECT user_id
+        FROM users
+        WHERE user_id = ? AND mail_address = ? AND is_active = 1
+        """,
+        (form["user_id"], form["mail_address"]),
+    )
+    if user is None:
+        flash("ユーザーIDまたはメールアドレスが正しくありません。", "error")
+        return render_template("forgot_password.html", form=form)
+
+    execute_query(
+        "UPDATE users SET password_hash = ? WHERE user_id = ?",
+        (generate_password_hash(new_password), form["user_id"]),
+    )
+
+    flash("パスワードを再設定しました。新しいパスワードでログインしてください。", "success")
+    return redirect(url_for("auth.login"))
 
 
 @auth_bp.route("/emoji-auth", methods=["GET", "POST"])
@@ -703,18 +870,29 @@ def logout() -> str:
     session.clear()
     flash("ログアウトしました。", "success")
     return redirect(url_for("auth.login"))
+```
 
+## run_app.bat
+
+```bat
+@echo off
+REM VS Code Terminal or Command Prompt from this folder
+python -m venv .venv
+call .venv\Scripts\activate.bat
+pip install -r requirements.txt
+python init_db.py
+python app.py
 ```
 
 ## services/__init__.py
 
-```
+```python
 
 ```
 
 ## services/auth_service.py
 
-```
+```python
 """Authentication service."""
 
 from werkzeug.security import check_password_hash
@@ -811,12 +989,11 @@ class AuthService:
             """
         )
         return [dict(row) for row in rows]
-
 ```
 
 ## services/emoji_service.py
 
-```
+```python
 """Service for creating and verifying emoji one-time codes."""
 
 import random
@@ -916,12 +1093,11 @@ class EmojiService:
         symbols = EMOJI_SYMBOLS.copy()
         random.shuffle(symbols)
         return symbols
-
 ```
 
 ## services/log_service.py
 
-```
+```python
 """Service for saving and reading login logs."""
 
 from datetime import datetime
@@ -961,12 +1137,11 @@ class LogService:
             (limit,),
         )
         return [dict(row) for row in rows]
-
 ```
 
 ## services/notification_service.py
 
-```
+```python
 """Notification service.
 
 The real system would send an email or smartphone notification.
@@ -991,12 +1166,11 @@ class NotificationService:
         print(f"認証コード: {code_text}")
         print("有効期限内にPC画面で順番どおりに選択してください。")
         print("=" * 60)
-
 ```
 
 ## static/css/style.css
 
-```
+```css
 * {
   box-sizing: border-box;
 }
@@ -1105,7 +1279,8 @@ label {
 }
 
 input[type="text"],
-input[type="password"] {
+input[type="password"],
+input[type="email"] {
   border: 1px solid #d9e1ec;
   border-radius: 8px;
   font-size: 16px;
@@ -1331,11 +1506,38 @@ th {
   }
 }
 
+
+.account-guide {
+  margin-top: 20px;
+  text-align: center;
+}
+
+@media (max-width: 820px) {
+  main {
+    padding: 16px;
+  }
+
+  .login-layout,
+  .auth-wrapper {
+    grid-template-columns: 1fr;
+  }
+
+  .login-left,
+  .login-card {
+    padding: 40px 28px;
+  }
+
+  .form-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
+}
 ```
 
 ## static/js/emoji_auth.js
 
-```
+```javascript
 const maxSelectionCount = 3;
 const selectedSymbols = [];
 
@@ -1382,12 +1584,11 @@ form.addEventListener("submit", (event) => {
     alert("3つの絵文字を順番に選択してください。");
   }
 });
-
 ```
 
 ## templates/admin_logs.html
 
-```
+```html
 {% extends "base.html" %}
 {% block content %}
 <section class="admin-card">
@@ -1416,12 +1617,11 @@ form.addEventListener("submit", (event) => {
   </table>
 </section>
 {% endblock %}
-
 ```
 
 ## templates/admin_users.html
 
-```
+```html
 {% extends "base.html" %}
 {% block content %}
 <section class="admin-card">
@@ -1458,12 +1658,11 @@ form.addEventListener("submit", (event) => {
   </table>
 </section>
 {% endblock %}
-
 ```
 
 ## templates/base.html
 
-```
+```html
 <!doctype html>
 <html lang="ja">
 <head>
@@ -1502,12 +1701,11 @@ form.addEventListener("submit", (event) => {
   </main>
 </body>
 </html>
-
 ```
 
 ## templates/emoji_auth.html
 
-```
+```html
 {% extends "base.html" %}
 {% block content %}
 <section class="auth-wrapper">
@@ -1562,12 +1760,50 @@ form.addEventListener("submit", (event) => {
 </section>
 <script src="{{ url_for('static', filename='js/emoji_auth.js') }}"></script>
 {% endblock %}
+```
 
+## templates/forgot_password.html
+
+```html
+{% extends "base.html" %}
+{% block content %}
+<section class="login-layout">
+  <div class="login-left">
+    <h1>パスワード<br>再設定</h1>
+    <p>登録済みのユーザーIDとメールアドレスを確認し、新しいパスワードを設定します。</p>
+  </div>
+
+  <div class="login-card">
+    <h2>パスワードを忘れた場合</h2>
+    <p class="sub-text">本人確認のため、ユーザーIDとメールアドレスを入力してください。</p>
+
+    <form method="post" action="{{ url_for('auth.forgot_password') }}">
+      <label for="user_id">ユーザーID</label>
+      <input id="user_id" name="user_id" type="text" value="{{ form.user_id if form else '' }}" required>
+
+      <label for="mail_address">メールアドレス</label>
+      <input id="mail_address" name="mail_address" type="email" value="{{ form.mail_address if form else '' }}" required>
+
+      <label for="new_password">新しいパスワード</label>
+      <input id="new_password" name="new_password" type="password" placeholder="8文字以上" required>
+
+      <label for="password_confirm">新しいパスワード確認</label>
+      <input id="password_confirm" name="password_confirm" type="password" placeholder="もう一度入力" required>
+
+      <button class="primary-button" type="submit">パスワードを再設定する</button>
+    </form>
+
+    <p class="sub-text account-guide">
+      <a class="text-link" href="{{ url_for('auth.login') }}">ログイン画面に戻る</a>
+    </p>
+  </div>
+</section>
+{% endblock %}
 ```
 
 ## templates/login.html
 
-```
+```html
 {% extends "base.html" %}
 {% block content %}
 <section class="login-layout">
@@ -1592,20 +1828,24 @@ form.addEventListener("submit", (event) => {
           <input type="checkbox" name="remember_me">
           ログイン状態を保存
         </label>
-        <a class="text-link" href="#">パスワードを忘れた場合</a>
+        <a class="text-link" href="{{ url_for('auth.forgot_password') }}">パスワードを忘れた場合</a>
       </div>
 
       <button class="primary-button" type="submit">次へ進む</button>
     </form>
+
+    <p class="sub-text account-guide">
+      アカウントを持っていない場合は
+      <a class="text-link" href="{{ url_for('auth.register') }}">新規登録</a>
+    </p>
   </div>
 </section>
 {% endblock %}
-
 ```
 
 ## templates/menu.html
 
-```
+```html
 {% extends "base.html" %}
 {% block content %}
 <section class="menu-card">
@@ -1622,17 +1862,49 @@ form.addEventListener("submit", (event) => {
   </div>
 </section>
 {% endblock %}
-
 ```
 
-## run_app.bat
+## templates/register.html
 
-```
-@echo off
-REM VS Code Terminal or Command Prompt from this folder
-python -m venv .venv
-call .venv\Scripts\activate.bat
-pip install -r requirements.txt
-python init_db.py
-python app.py
+```html
+{% extends "base.html" %}
+{% block content %}
+<section class="login-layout">
+  <div class="login-left">
+    <h1>アカウント<br>新規登録</h1>
+    <p>利用者情報を入力して、新しいログインアカウントを作成します。</p>
+  </div>
+
+  <div class="login-card">
+    <h2>新規登録</h2>
+    <p class="sub-text">ユーザー情報を入力してください。</p>
+
+    <form method="post" action="{{ url_for('auth.register') }}">
+      <label for="user_id">ユーザーID</label>
+      <input id="user_id" name="user_id" type="text" placeholder="例: sato_sho" value="{{ form.user_id if form else '' }}" required>
+
+      <label for="name">氏名</label>
+      <input id="name" name="name" type="text" placeholder="例: 佐藤 翔" value="{{ form.name if form else '' }}" required>
+
+      <label for="mail_address">メールアドレス</label>
+      <input id="mail_address" name="mail_address" type="email" placeholder="例: sato@example.com" value="{{ form.mail_address if form else '' }}" required>
+
+      <label for="phone_number">電話番号</label>
+      <input id="phone_number" name="phone_number" type="text" placeholder="例: 090-0000-0000" value="{{ form.phone_number if form else '' }}">
+
+      <label for="password">パスワード</label>
+      <input id="password" name="password" type="password" placeholder="8文字以上" required>
+
+      <label for="password_confirm">パスワード確認</label>
+      <input id="password_confirm" name="password_confirm" type="password" placeholder="もう一度入力" required>
+
+      <button class="primary-button" type="submit">登録する</button>
+    </form>
+
+    <p class="sub-text account-guide">
+      <a class="text-link" href="{{ url_for('auth.login') }}">ログイン画面に戻る</a>
+    </p>
+  </div>
+</section>
+{% endblock %}
 ```

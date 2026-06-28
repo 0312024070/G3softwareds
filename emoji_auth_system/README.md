@@ -122,3 +122,31 @@ emoji_auth_system/
 ## 6. 注意
 
 このソースコードは授業課題・プロトタイプ用です。実運用する場合は、HTTPS、メール送信設定、CSRF対策、試行回数制限、監査ログ強化などを追加してください。
+
+
+## 追加修正版の内容
+
+この修正版では、ログイン画面に以下の機能を追加しています。
+
+- 「新規登録」リンク
+- 「パスワードを忘れた場合」リンク
+- 新規登録画面 `/register`
+- パスワード再設定画面 `/forgot-password`
+
+### 起動方法
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+python init_db.py
+python app.py
+```
+
+ブラウザで以下を開きます。
+
+```text
+http://127.0.0.1:5000
+```
+
+※ `requirements.txt` が見つからない場合は、`app.py` と `requirements.txt` が直接見えるフォルダを VS Code で開いてください。
