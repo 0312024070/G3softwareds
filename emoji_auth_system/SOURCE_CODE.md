@@ -1881,13 +1881,13 @@ form.addEventListener("submit", (event) => {
 
     <form method="post" action="{{ url_for('auth.register') }}">
       <label for="user_id">ユーザーID</label>
-      <input id="user_id" name="user_id" type="text" placeholder="例: sato_sho" value="{{ form.user_id if form else '' }}" required>
+      <input id="user_id" name="user_id" type="text" placeholder="例: yamada-taro" value="{{ form.user_id if form else '' }}" required>
 
       <label for="name">氏名</label>
-      <input id="name" name="name" type="text" placeholder="例: 佐藤 翔" value="{{ form.name if form else '' }}" required>
+      <input id="name" name="name" type="text" placeholder="例: 山田　太郎" value="{{ form.name if form else '' }}" required>
 
       <label for="mail_address">メールアドレス</label>
-      <input id="mail_address" name="mail_address" type="email" placeholder="例: sato@example.com" value="{{ form.mail_address if form else '' }}" required>
+      <input id="mail_address" name="mail_address" type="email" placeholder="例: yamada@example.com" value="{{ form.mail_address if form else '' }}" required>
 
       <label for="phone_number">電話番号</label>
       <input id="phone_number" name="phone_number" type="text" placeholder="例: 090-0000-0000" value="{{ form.phone_number if form else '' }}">
