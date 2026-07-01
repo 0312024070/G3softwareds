@@ -1,6 +1,9 @@
-"""Routes for login and emoji authentication."""
+"""Routes for login, registration, and emoji authentication."""
 
-from datetime import datetime
+from __future__ import annotations
+
+import secrets
+from datetime import datetime, timedelta
 
 from flask import (
     Blueprint,
@@ -11,14 +14,14 @@ from flask import (
     session,
     url_for,
 )
-
 from werkzeug.security import generate_password_hash
 
-from config import CODE_EXPIRATION_MINUTES
+from config import CODE_EXPIRATION_MINUTES, REGISTRATION_CODE_EXPIRATION_MINUTES
 from database import execute_query, fetch_one
 from services.auth_service import AuthService
 from services.emoji_service import EmojiService
 from services.log_service import LogService
+from services.notification_service import NotificationService
 
 auth_bp = Blueprint("auth", __name__)
 
@@ -69,9 +72,51 @@ def get_user_role_id(role_name: str) -> int | None:
     return int(role["role_id"])
 
 
+def create_verification_code() -> str:
+    """Create a six-digit verification code for registration."""
+    return f"{secrets.randbelow(1_000_000):06d}"
+
+
+def save_pending_registration(form: dict[str, str], password: str, role_id: int) -> str:
+    """Store registration data temporarily until email verification succeeds."""
+    verification_code = create_verification_code()
+    expiration_time = datetime.now() + timedelta(minutes=REGISTRATION_CODE_EXPIRATION_MINUTES)
+
+    session["pending_registration"] = {
+        "user_id": form["user_id"],
+        "name": form["name"],
+        "mail_address": form["mail_address"],
+        "phone_number": form["phone_number"],
+        "password_hash": generate_password_hash(password),
+        "role_id": role_id,
+        "verification_code": verification_code,
+        "expiration_time": expiration_time.isoformat(timespec="seconds"),
+    }
+
+    return verification_code
+
+
+def get_pending_registration() -> dict[str, object] | None:
+    """Return pending registration data stored in the session."""
+    pending = session.get("pending_registration")
+    if not isinstance(pending, dict):
+        return None
+    return pending
+
+
+def is_pending_registration_expired(pending: dict[str, object]) -> bool:
+    """Return True when the pending registration verification code is expired."""
+    expiration_text = str(pending.get("expiration_time", ""))
+    try:
+        expiration_time = datetime.fromisoformat(expiration_text)
+    except ValueError:
+        return True
+    return datetime.now() > expiration_time
+
+
 @auth_bp.route("/register", methods=["GET", "POST"])
 def register() -> str:
-    """Show user registration form and create a new account."""
+    """Show user registration form and start email verification."""
     if request.method == "GET":
         return render_template("register.html", form={})
 
@@ -104,10 +149,68 @@ def register() -> str:
         flash("このユーザーIDはすでに使用されています。", "error")
         return render_template("register.html", form=form)
 
+    existing_mail = fetch_one(
+        "SELECT user_id FROM users WHERE mail_address = ?",
+        (form["mail_address"],),
+    )
+    if existing_mail is not None:
+        flash("このメールアドレスはすでに登録されています。", "error")
+        return render_template("register.html", form=form)
+
     role_id = get_user_role_id("user")
     if role_id is None:
         flash("権限情報が見つかりません。python init_db.py を実行してください。", "error")
         return render_template("register.html", form=form)
+
+    verification_code = save_pending_registration(form, password, role_id)
+    NotificationService.send_registration_code(
+        form["mail_address"],
+        verification_code,
+        REGISTRATION_CODE_EXPIRATION_MINUTES,
+    )
+
+    flash("入力されたメールアドレスへ確認コードを送信しました。", "success")
+    return redirect(url_for("auth.verify_registration"))
+
+
+@auth_bp.route("/register/verify", methods=["GET", "POST"])
+def verify_registration() -> str:
+    """Verify the email code and create the user account."""
+    pending = get_pending_registration()
+    if pending is None:
+        flash("新規登録画面からやり直してください。", "error")
+        return redirect(url_for("auth.register"))
+
+    if request.method == "GET":
+        return render_template(
+            "verify_registration.html",
+            mail_address=pending.get("mail_address"),
+            expiration_minutes=REGISTRATION_CODE_EXPIRATION_MINUTES,
+        )
+
+    input_code = request.form.get("verification_code", "").strip()
+
+    if is_pending_registration_expired(pending):
+        session.pop("pending_registration", None)
+        flash("確認コードの有効期限が切れました。もう一度登録してください。", "error")
+        return redirect(url_for("auth.register"))
+
+    if input_code != str(pending.get("verification_code")):
+        flash("確認コードが正しくありません。", "error")
+        return render_template(
+            "verify_registration.html",
+            mail_address=pending.get("mail_address"),
+            expiration_minutes=REGISTRATION_CODE_EXPIRATION_MINUTES,
+        )
+
+    existing_user = fetch_one(
+        "SELECT user_id FROM users WHERE user_id = ?",
+        (str(pending["user_id"]),),
+    )
+    if existing_user is not None:
+        session.pop("pending_registration", None)
+        flash("このユーザーIDはすでに使用されています。", "error")
+        return redirect(url_for("auth.register"))
 
     execute_query(
         """
@@ -117,19 +220,43 @@ def register() -> str:
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            form["user_id"],
-            form["name"],
-            generate_password_hash(password),
-            role_id,
-            form["mail_address"],
-            form["phone_number"],
+            str(pending["user_id"]),
+            str(pending["name"]),
+            str(pending["password_hash"]),
+            int(pending["role_id"]),
+            str(pending["mail_address"]),
+            str(pending.get("phone_number", "")),
             1,
             datetime.now().isoformat(timespec="seconds"),
         ),
     )
 
-    flash("アカウントを登録しました。ログインしてください。", "success")
+    session.pop("pending_registration", None)
+    flash("メール確認が完了しました。アカウントを登録しました。", "success")
     return redirect(url_for("auth.login"))
+
+
+@auth_bp.route("/register/resend", methods=["POST"])
+def resend_registration_code() -> str:
+    """Resend the registration verification code."""
+    pending = get_pending_registration()
+    if pending is None:
+        flash("新規登録画面からやり直してください。", "error")
+        return redirect(url_for("auth.register"))
+
+    verification_code = create_verification_code()
+    expiration_time = datetime.now() + timedelta(minutes=REGISTRATION_CODE_EXPIRATION_MINUTES)
+    pending["verification_code"] = verification_code
+    pending["expiration_time"] = expiration_time.isoformat(timespec="seconds")
+    session["pending_registration"] = pending
+
+    NotificationService.send_registration_code(
+        str(pending["mail_address"]),
+        verification_code,
+        REGISTRATION_CODE_EXPIRATION_MINUTES,
+    )
+    flash("確認コードを再送信しました。", "success")
+    return redirect(url_for("auth.verify_registration"))
 
 
 @auth_bp.route("/forgot-password", methods=["GET", "POST"])

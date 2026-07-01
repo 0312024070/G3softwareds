@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="login-layout">
+  <div class="login-left">
+    <h1>メール確認<br>新規登録</h1>
+    <p>入力されたメールアドレスに送信された6桁の確認コードを入力してください。</p>
+  </div>
+
+  <div class="login-card">
+    <h2>確認コード入力</h2>
+    <p class="sub-text">
+      <strong>{{ mail_address }}</strong> 宛に確認コードを送信しました。<br>
+      有効期限は{{ expiration_minutes }}分です。
+    </p>
+
+    <form method="post" action="{{ url_for('auth.verify_registration') }}">
+      <label for="verification_code">確認コード</label>
+      <input
+        id="verification_code"
+        name="verification_code"
+        type="text"
+        inputmode="numeric"
+        pattern="[0-9]{6}"
+        maxlength="6"
+        placeholder="例: 123456"
+        required
+      >
+
+      <button class="primary-button" type="submit">確認して登録する</button>
+    </form>
+
+    <form method="post" action="{{ url_for('auth.resend_registration_code') }}" class="resend-form">
+      <button class="secondary-button full-width-button" type="submit">確認コードを再送信</button>
+    </form>
+
+    <p class="sub-text account-guide">
+      <a class="text-link" href="{{ url_for('auth.register') }}">新規登録画面に戻る</a>
+    </p>
+  </div>
+</section>
+{% endblock %}

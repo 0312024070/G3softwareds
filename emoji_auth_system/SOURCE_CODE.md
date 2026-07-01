@@ -1908,3 +1908,45 @@ form.addEventListener("submit", (event) => {
 </section>
 {% endblock %}
 ```
+
+---
+
+## 追加修正：新規登録メール確認機能
+
+この版では、新規登録フォームを送信しただけでは `users` テーブルへ登録されない。
+登録メールアドレスへ6桁の確認コードを送信し、`/register/verify` で正しいコードを入力した場合のみアカウントを作成する。
+
+### 追加・変更ファイル
+
+- `routes/auth_routes.py`
+  - `/register` は仮登録と確認コード送信のみ行う。
+  - `/register/verify` で確認コードを照合し、成功時にユーザーを登録する。
+  - `/register/resend` で確認コードを再送信する。
+- `templates/verify_registration.html`
+  - 6桁の確認コード入力画面。
+- `services/notification_service.py`
+  - `send_registration_code()` を追加。
+- `config.py`
+  - `REGISTRATION_CODE_EXPIRATION_MINUTES` を追加。
+- `app.py`
+  - `python-dotenv` により `.env` を読み込む。
+- `.env.example`
+  - SMTP設定例。
+- `.gitignore`
+  - `.env`、`.venv`、DBファイルなどを除外。
+
+### 処理の流れ
+
+```text
+新規登録画面
+↓
+入力チェック
+↓
+確認コードを生成
+↓
+メール送信
+↓
+確認コード入力画面
+↓
+コード一致・期限内なら users テーブルへ登録
+```

@@ -1,11 +1,14 @@
 """Application entry point for the emoji shuffle authentication system."""
 
+from dotenv import load_dotenv
 from flask import Flask
 
 from config import SECRET_KEY
 from database import close_db
 from routes.admin_routes import admin_bp
 from routes.auth_routes import auth_bp
+
+load_dotenv()
 
 
 def create_app() -> Flask:

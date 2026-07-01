@@ -360,3 +360,11 @@ th {
     gap: 12px;
   }
 }
+
+.resend-form {
+  margin-top: 16px;
+}
+
+.full-width-button {
+  width: 100%;
+}

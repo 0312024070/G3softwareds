@@ -8,7 +8,7 @@
 
   <div class="login-card">
     <h2>新規登録</h2>
-    <p class="sub-text">ユーザー情報を入力してください。</p>
+    <p class="sub-text">ユーザー情報を入力後、メール確認コードを送信します。</p>
 
     <form method="post" action="{{ url_for('auth.register') }}">
       <label for="user_id">ユーザーID</label>
@@ -29,7 +29,7 @@
       <label for="password_confirm">パスワード確認</label>
       <input id="password_confirm" name="password_confirm" type="password" placeholder="もう一度入力" required>
 
-      <button class="primary-button" type="submit">登録する</button>
+      <button class="primary-button" type="submit">確認コードを送信する</button>
     </form>
 
     <p class="sub-text account-guide">
